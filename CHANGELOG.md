@@ -20,15 +20,18 @@ below.
 - **Rescan library** now also picks up analyses that another machine left in a shared cache folder: songs already in the library whose stems and transcript exist in the cache are marked ready without re-running analysis, and a toast summarizes how many were updated.
 - The lyrics editor pre-fills from a `.lrc` / `.elrc` file next to a local song's audio when the song has no lyrics yet, and offers a **Use local .lrc** action otherwise; nothing is written until Save.
 - Added the ability to toggle the display of romanized lyrics for CJK languages in Settings.
+- Added a **Folders** section to the sidebar for local folder libraries: it keeps the library's subfolder hierarchy, subfolders open and close with their chevron (or by selecting the folder again), and selecting a folder shows its songs and those of its subfolders.
 - Japanese readings can be overridden in the lyrics editor with `{漢字|かな}` or `{漢字|romaji}` (for example `{彷徨|さまよ}って`); kana overrides also guide alignment.
 
 ### Improvements
 
 - Migrated library persistence from handwritten runtime SQL to Diesel's typed SQLite query builder without changing existing databases or library behavior.
 - Playback queue songs can now be reordered by dragging or with Alt+Arrow keys.
+- The lyrics editor shows the LRC timing syntax (`[01:23.45]` per line, `<01:24.10>` per word) under the text box.
 
 ### Fixes
 
+- Lyrics now follow the song at a changed tempo after the lyrics were edited or re-aligned: the tempo-scaled lyric timings are rebuilt when missing instead of falling back to the original-speed timings.
 - Lyrics alignment no longer keeps a word highlighted through instrumental breaks or long pauses: words stretched over a vocal silence are trimmed to their sung part.
 - Qwen lyrics alignment no longer shifts words onto the wrong lines after a token that spans two lyric lines (金の塔 / 北の丘 aligned as "塔北").
 - Japanese romaji now reads kanji in sentence context (彷徨って → samayotte, 君 → kimi instead of hōkō / kun), romanizes the particles は / へ as wa / e, handles small っ across word boundaries, and treats half-width spaces as word breaks (街 家 → machi ie, not machi ka).
