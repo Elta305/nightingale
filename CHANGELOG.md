@@ -29,6 +29,7 @@ below.
 
 ### Fixes
 
+- Qwen lyrics alignment no longer shifts words onto the wrong lines after a token that spans two lyric lines (金の塔 / 北の丘 aligned as "塔北").
 - Japanese romaji now reads kanji in sentence context (彷徨って → samayotte, 君 → kimi instead of hōkō / kun), romanizes the particles は / へ as wa / e, and handles small っ across word boundaries.
 - Song details now open without re-rendering every loaded song or initializing multiplayer devices.
 - Song selections now remain active while searching and after clearing the search field.

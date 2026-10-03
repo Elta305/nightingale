@@ -237,6 +237,7 @@ _JA_READING_OVERRIDES = {
     "明日": "あした",
     "日本": "にほん",
     "言う": "いう",
+    "闇夜": "やみよ",
 }
 # unidic-lite always reads 何 as ナン; before these particles it is なに.
 _JA_NANI_FOLLOWERS = ("を", "が", "か", "も", "に", "より")
@@ -332,16 +333,22 @@ def _japanese_char_kana(text: str, spans=()) -> list[str]:
                 frags[start] = particle
             continue
 
+        prev = morphemes[i - 1].surface if i > 0 else ""
+        nxt = morphemes[i + 1].surface if i + 1 < len(morphemes) else ""
         kana = _JA_READING_OVERRIDES.get(surface)
-        if kana is None and surface == "何":
-            nxt = morphemes[i + 1].surface if i + 1 < len(morphemes) else ""
-            if nxt in _JA_NANI_FOLLOWERS:
-                kana = "なに"
-        if kana is None and surface == "君" and i > 0:
+        if kana is None and surface == "何" and nxt in _JA_NANI_FOLLOWERS:
+            kana = "なに"
+        if kana is None and surface == "君" and prev:
             # After latin ("you 君") UniDic parses 君 as the name suffix くん.
-            prev = morphemes[i - 1].surface
             if not any(_is_kana(ch) or _is_kanji(ch) for ch in prev):
                 kana = "きみ"
+        if kana is None and surface == "色" and prev and getattr(m.feature, "pos1", None) == "接尾辞":
+            # Colour after a kana word (ハッカ色, オレンジ色) is いろ, not しょく.
+            if not any(_is_kanji(ch) for ch in prev):
+                kana = "いろ"
+        if kana is None and surface == "金" and nxt == "の" and prev != "お":
+            # UniDic reads 金の as money (かね); in lyrics it is gold (金の塔).
+            kana = "きん"
         if kana is None:
             kana = _katakana_to_hiragana(_morpheme_kana(m))
         if not kana:
