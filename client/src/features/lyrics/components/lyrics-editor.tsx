@@ -6,6 +6,8 @@ import { cn } from '@/shared/utils/cn';
 import { NO_FOCUS_RING_CLASS, RING_CLASS } from './parts';
 
 const TEXTAREA_ROWS = 16;
+// Kana or kanji present: surface the {base|reading} override syntax the analyzer understands.
+const CJK_PATTERN = /[぀-ヿ㐀-鿿]/;
 
 const handleKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>): void => {
   if (event.key === 'Escape') {
@@ -57,6 +59,11 @@ export const LyricsEditor = ({
         {lineCount} {lineCount === 1 ? 'line' : 'lines'}
         {isDirty ? ' • unsaved changes' : ''}
       </p>
+      {CJK_PATTERN.test(text) && (
+        <p className="mt-1 text-[11px] text-muted-foreground">
+          Fix a reading with {'{漢字|かな}'} or {'{漢字|romaji}'}, e.g. {'{彷徨|さまよ}って'}
+        </p>
+      )}
     </>
   );
 };

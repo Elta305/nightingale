@@ -26,6 +26,9 @@ non-CJK songs don't pay the fugashi/pykakasi/jieba/ToJyutping/
 hangul-romanize startup cost.
 """
 
+import itertools
+import re
+
 # Punctuation / symbols / whitespace not present in the wav2vec2 ja/zh
 # vocabs. Concatenates the CHARS_TO_IGNORE lists from both model cards plus
 # common kaomoji/lyric punctuation we've seen in LRClib payloads.
@@ -180,7 +183,7 @@ def _morpheme_kana(t) -> str:
     return ""
 
 
-def tokenize_japanese_with_reading(text: str) -> list[tuple[str, str]]:
+def tokenize_japanese_with_reading(text: str, spans=()) -> list[tuple[str, str]]:
     """Return ``[(surface, hiragana_reading), ...]`` per fugashi morpheme.
 
     The hiragana reading is the chars to feed the slplab hiragana CTC model;
@@ -188,16 +191,30 @@ def tokenize_japanese_with_reading(text: str) -> list[tuple[str, str]]:
     whole input. Tokens with no kana representation (ASCII, numerals,
     symbols) get an empty reading and are subsequently treated as punct by
     :func:`attribute_chars_to_tokens` / :func:`merge_punct`.
+
+    ``spans`` are user reading overrides from :func:`parse_reading_markup`;
+    kana ones replace the UniDic reading of the morphemes they cover (romaji
+    ones can't be fed to the hiragana aligner and only affect display).
     """
     if not text:
         return []
+    kana_spans = [sp for sp in spans if _is_kana_reading(sp[2])]
+    frags = _apply_reading_spans(list(text), kana_spans) if kana_spans else None
     tagger = _get_fugashi()
     out: list[tuple[str, str]] = []
+    pos = 0
     for t in tagger(text):
         surface = getattr(t, "surface", None) or str(t)
         if not surface:
             continue
-        kana = _morpheme_kana(t)
+        start = text.find(surface, pos)
+        if start >= 0:
+            pos = start + len(surface)
+        end = start + len(surface)
+        if frags is not None and start >= 0 and any(s < end and start < e for s, e, _ in kana_spans):
+            kana = "".join(frags[start:end])
+        else:
+            kana = _morpheme_kana(t)
         if not kana:
             out.append((surface, ""))
             continue
@@ -211,6 +228,223 @@ def tokenize_japanese_with_reading(text: str) -> list[tuple[str, str]]:
         )
         out.append((surface, hira_only))
     return out
+
+
+# unidic-lite readings that are valid but almost never what lyrics mean
+# (formal/rare defaults, or kana spelled as pronounced like 言う=ユウ).
+_JA_READING_OVERRIDES = {
+    "私": "わたし",
+    "明日": "あした",
+    "日本": "にほん",
+    "言う": "いう",
+}
+# unidic-lite always reads 何 as ナン; before these particles it is なに.
+_JA_NANI_FOLLOWERS = ("を", "が", "か", "も", "に", "より")
+# Topic/direction particles romanize by pronunciation, not spelling.
+_JA_PARTICLE_READINGS = {"は": "わ", "へ": "え"}
+_JA_SOKUON = ("っ", "ッ")
+
+# Manual reading override typed in the lyrics editor: {彷徨|さまよ} or {君|kimi}.
+_READING_MARKUP_RE = re.compile(r"\{([^{}|]+)\|([^{}|]*)\}")
+
+
+def parse_reading_markup(line: str) -> tuple[str, list[tuple[int, int, str]]]:
+    """Strip ``{base|reading}`` markup from a lyric line.
+
+    Returns the plain line (what is displayed and aligned) and
+    ``(start, end, reading)`` spans indexing into it. ``reading`` is kana
+    (used for the romaji and, for ja, the aligner) or literal romaji (shown
+    as-is). Markup with an empty reading is just unwrapped.
+    """
+    plain: list[str] = []
+    spans: list[tuple[int, int, str]] = []
+    plain_len = 0
+    last = 0
+    for m in _READING_MARKUP_RE.finditer(line):
+        before = line[last:m.start()]
+        base, rd = m.group(1), m.group(2).strip()
+        plain.append(before)
+        plain_len += len(before)
+        if rd:
+            spans.append((plain_len, plain_len + len(base), rd))
+        plain.append(base)
+        plain_len += len(base)
+        last = m.end()
+    plain.append(line[last:])
+    return "".join(plain), spans
+
+
+def _is_kana_reading(reading: str) -> bool:
+    return all(_is_kana(ch) for ch in reading)
+
+
+def _apply_reading_spans(frags: list[str], spans) -> list[str]:
+    """Put each span's reading on its first char and blank the rest, so any
+    token covering the span's start carries the whole override."""
+    for start, end, rd in spans:
+        if start >= len(frags):
+            continue
+        frags[start] = rd
+        for j in range(start + 1, min(end, len(frags))):
+            frags[j] = ""
+    return frags
+
+
+def _is_kanji(ch: str) -> bool:
+    c = ord(ch)
+    return (
+        0x4E00 <= c <= 0x9FFF
+        or 0x3400 <= c <= 0x4DBF
+        or 0xF900 <= c <= 0xFAFF
+        or ch == "々"
+    )
+
+
+def _is_kana(ch: str) -> bool:
+    return 0x3040 <= ord(ch) <= 0x30FF
+
+
+def _japanese_char_kana(text: str, spans=()) -> list[str]:
+    """Per-character kana for ``text``, using fugashi/UniDic readings so that
+    kanji are read in sentence context (彷徨っ=さまよっ, 君=きみ) rather than
+    by context-free dictionary default (ほうこう, くん).
+
+    Returns a list parallel to ``text``. Kana/latin/punct chars map to
+    themselves; a kanji morpheme's reading goes on its first kanji char (other
+    kanji get "") while its kana prefix/okurigana stay on their own chars, so
+    any slice of the list lines up with the same slice of ``text`` even when
+    display tokens split a morpheme. User ``spans`` (see
+    :func:`parse_reading_markup`) are applied last and win.
+    """
+    frags = list(text)
+    morphemes = list(_get_fugashi()(text))
+    pos = 0
+    for i, m in enumerate(morphemes):
+        surface = getattr(m, "surface", None) or str(m)
+        start = text.find(surface, pos) if surface else -1
+        if start < 0:
+            continue
+        pos = start + len(surface)
+
+        if not any(_is_kanji(ch) for ch in surface):
+            particle = _JA_PARTICLE_READINGS.get(surface)
+            if particle and getattr(m.feature, "pos1", None) == "助詞":
+                frags[start] = particle
+            continue
+
+        kana = _JA_READING_OVERRIDES.get(surface)
+        if kana is None and surface == "何":
+            nxt = morphemes[i + 1].surface if i + 1 < len(morphemes) else ""
+            if nxt in _JA_NANI_FOLLOWERS:
+                kana = "なに"
+        if kana is None and surface == "君" and i > 0:
+            # After latin ("you 君") UniDic parses 君 as the name suffix くん.
+            prev = morphemes[i - 1].surface
+            if not any(_is_kana(ch) or _is_kanji(ch) for ch in prev):
+                kana = "きみ"
+        if kana is None:
+            kana = _katakana_to_hiragana(_morpheme_kana(m))
+        if not kana:
+            continue
+
+        # Split the reading across the surface's kanji/kana runs (立ち尽くし
+        # = たち|つく|し) so a token boundary inside the morpheme still gets
+        # the right share; if the kana runs don't match, the whole reading
+        # goes on the first char.
+        runs = [
+            (r_start, "".join(g))
+            for r_start, g in _char_runs(surface, _is_kana)
+        ]
+        pattern = "".join(
+            re.escape(_katakana_to_hiragana(r)) if _is_kana(r[0]) else "(.+?)"
+            for _, r in runs
+        )
+        match = re.fullmatch(pattern, kana)
+        for j in range(start, start + len(surface)):
+            frags[j] = ""
+        if match is None:
+            frags[start] = kana
+            continue
+        groups = iter(match.groups())
+        for r_start, r in runs:
+            if _is_kana(r[0]):
+                for j, ch in enumerate(r):
+                    frags[start + r_start + j] = ch
+            else:
+                frags[start + r_start] = next(groups)
+    return _apply_reading_spans(frags, spans)
+
+
+def _char_runs(text: str, pred):
+    """Yield ``(offset, chars)`` for maximal runs of ``text`` sharing ``pred``."""
+    offset = 0
+    for _, group in itertools.groupby(text, key=pred):
+        chars = list(group)
+        yield offset, chars
+        offset += len(chars)
+
+
+def _kana_to_romaji(kana: str) -> str:
+    chunks = _get_pykakasi().convert(kana)
+    return "".join(c.get("hepburn", "") for c in chunks).strip()
+
+
+def _japanese_readings(words: list[str], line: str | None = None, spans=()) -> list:
+    """Hepburn romaji for consecutive display tokens of one line.
+
+    The tokens are analysed within ``line`` (or, without it, joined) so
+    fugashi sees the full sentence; each token then gets the romaji of its
+    own slice. ``spans`` index into ``line`` and override readings. A token
+    ending in a sokuon (彷徨っ|て) gets the next token's doubled consonant
+    (samayot|te) instead of pykakasi's standalone "tsu".
+    """
+    text = line if line is not None else "".join(words)
+    try:
+        frags = _japanese_char_kana(text, spans)
+    except Exception:
+        frags = _apply_reading_spans(list(text), spans)
+
+    kanas: list[str] = []
+    sokuon: list[bool] = []
+    pos = 0
+    for w in words:
+        at = text.find(w, pos) if w else -1
+        if at >= 0:
+            k = "".join(frags[at:at + len(w)])
+            pos = at + len(w)
+        else:
+            # Token text not found in the line (aligner normalised it): read
+            # it standalone rather than misattributing a neighbour's slice.
+            try:
+                k = "".join(_japanese_char_kana(w))
+            except Exception:
+                k = w
+        body = k.rstrip("".join(_NOISE_CHARS_SET))
+        tail = k[len(body):]
+        if body.endswith(_JA_SOKUON):
+            # Geminate only into a directly following token; before punct
+            # or at line end (あっ！) the sokuon is just a glottal stop.
+            kanas.append(body[:-1] + tail)
+            sokuon.append(not tail)
+        else:
+            kanas.append(k)
+            sokuon.append(False)
+
+    out: list = []
+    for w, k in zip(words, kanas):
+        try:
+            r = _kana_to_romaji(k) if clean_for_alignment(w) else ""
+        except Exception:
+            r = ""
+        out.append(r)
+
+    for i in range(len(out)):
+        if not sokuon[i] or i + 1 >= len(out):
+            continue
+        nxt = out[i + 1]
+        if nxt[:1].isalpha() and nxt[:1].lower() not in "aeiou":
+            out[i] += "t" if nxt.lower().startswith("ch") else nxt[0].lower()
+    return [r or None for r in out]
 
 
 def tokenize_chinese(text: str) -> list[str]:
@@ -238,7 +472,7 @@ def tokenize(text: str, lang: str) -> list[str]:
     return [text]
 
 
-def tokenize_for_alignment(text: str, lang: str) -> list[tuple[str, str]]:
+def tokenize_for_alignment(text: str, lang: str, spans=()) -> list[tuple[str, str]]:
     """Per-token ``(display_surface, alignment_chars)`` pairs.
 
     Concatenating the second element of every pair yields the full string
@@ -254,7 +488,7 @@ def tokenize_for_alignment(text: str, lang: str) -> list[tuple[str, str]]:
     if not text:
         return []
     if lang == "ja":
-        return tokenize_japanese_with_reading(text)
+        return tokenize_japanese_with_reading(text, spans)
     if lang in ("zh", "yue"):
         return [(t, clean_for_alignment(t)) for t in tokenize_chinese(text)]
     return [(text, clean_for_alignment(text))]
@@ -309,12 +543,7 @@ def reading(text: str, lang: str):
         except Exception:
             return None
     if lang == "ja":
-        try:
-            chunks = _get_pykakasi().convert(text)
-            r = "".join(c.get("hepburn", "") for c in chunks).strip()
-            return r or None
-        except Exception:
-            return None
+        return _japanese_readings([text])[0]
     if lang == "zh":
         try:
             from pypinyin import pinyin, Style
@@ -431,8 +660,18 @@ def merge_punct(entries: list[dict]) -> list[dict]:
     return out
 
 
-def attach_reading(entries: list[dict], lang: str) -> None:
-    """Attach a ``reading`` field to each entry that has displayable text."""
+def attach_reading(entries: list[dict], lang: str, line: str | None = None, spans=()) -> None:
+    """Attach a ``reading`` field to each entry that has displayable text.
+
+    Japanese entries are read together (within ``line`` when given) so each
+    token's kanji reading comes from its sentence context, and ``spans`` from
+    :func:`parse_reading_markup` override it (see :func:`_japanese_readings`)."""
+    if lang == "ja":
+        words = [e for e in entries if "word" in e]
+        for e, r in zip(words, _japanese_readings([e["word"] for e in words], line, spans)):
+            if r:
+                e["reading"] = r
+        return
     for e in entries:
         if "word" not in e:
             continue

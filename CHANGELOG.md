@@ -20,6 +20,7 @@ below.
 - **Rescan library** now also picks up analyses that another machine left in a shared cache folder: songs already in the library whose stems and transcript exist in the cache are marked ready without re-running analysis, and a toast summarizes how many were updated.
 - The lyrics editor pre-fills from a `.lrc` / `.elrc` file next to a local song's audio when the song has no lyrics yet, and offers a **Use local .lrc** action otherwise; nothing is written until Save.
 - Added the ability to toggle the display of romanized lyrics for CJK languages in Settings.
+- Japanese readings can be overridden in the lyrics editor with `{漢字|かな}` or `{漢字|romaji}` (for example `{彷徨|さまよ}って`); kana overrides also guide alignment.
 
 ### Improvements
 
@@ -28,6 +29,7 @@ below.
 
 ### Fixes
 
+- Japanese romaji now reads kanji in sentence context (彷徨って → samayotte, 君 → kimi instead of hōkō / kun), romanizes the particles は / へ as wa / e, and handles small っ across word boundaries.
 - Song details now open without re-rendering every loaded song or initializing multiplayer devices.
 - Song selections now remain active while searching and after clearing the search field.
 - Song search is now case-insensitive for Unicode metadata and paths.
