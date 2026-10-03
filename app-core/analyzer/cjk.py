@@ -183,6 +183,26 @@ def _morpheme_kana(t) -> str:
     return ""
 
 
+def _tag_japanese(text: str):
+    """Yield ``(start, morpheme)`` for each fugashi morpheme of ``text``.
+
+    MeCab skips ASCII spaces, which glues the words around them together
+    (街 家 -> 街家, with 家 read as the suffix か), so they are tagged as
+    full-width spaces. Both are one char, so ``start`` still indexes ``text``;
+    it is -1 when a surface can't be located.
+    """
+    tagged = text.replace(" ", "　")
+    pos = 0
+    for m in _get_fugashi()(tagged):
+        surface = getattr(m, "surface", None) or str(m)
+        if not surface:
+            continue
+        start = tagged.find(surface, pos)
+        if start >= 0:
+            pos = start + len(surface)
+        yield start, m
+
+
 def tokenize_japanese_with_reading(text: str, spans=()) -> list[tuple[str, str]]:
     """Return ``[(surface, hiragana_reading), ...]`` per fugashi morpheme.
 
@@ -198,19 +218,14 @@ def tokenize_japanese_with_reading(text: str, spans=()) -> list[tuple[str, str]]
     """
     if not text:
         return []
-    kana_spans = [sp for sp in spans if _is_kana_reading(sp[2])]
+    kana_spans = _compound_spans(text) + [sp for sp in spans if _is_kana_reading(sp[2])]
     frags = _apply_reading_spans(list(text), kana_spans) if kana_spans else None
-    tagger = _get_fugashi()
     out: list[tuple[str, str]] = []
-    pos = 0
-    for t in tagger(text):
+    for start, t in _tag_japanese(text):
         surface = getattr(t, "surface", None) or str(t)
-        if not surface:
-            continue
-        start = text.find(surface, pos)
-        if start >= 0:
-            pos = start + len(surface)
         end = start + len(surface)
+        if start >= 0:
+            surface = text[start:end]
         if frags is not None and start >= 0 and any(s < end and start < e for s, e, _ in kana_spans):
             kana = "".join(frags[start:end])
         else:
@@ -238,6 +253,11 @@ _JA_READING_OVERRIDES = {
     "日本": "にほん",
     "言う": "いう",
     "闇夜": "やみよ",
+}
+# Words unidic-lite splits into several morphemes and so misreads (三日+月 =
+# みっか+つき). Readings are per character so any token split stays correct.
+_JA_COMPOUND_READINGS = {
+    "三日月": ("み", "か", "づき"),
 }
 # unidic-lite always reads 何 as ナン; before these particles it is なに.
 _JA_NANI_FOLLOWERS = ("を", "が", "か", "も", "に", "より")
@@ -273,6 +293,17 @@ def parse_reading_markup(line: str) -> tuple[str, list[tuple[int, int, str]]]:
         last = m.end()
     plain.append(line[last:])
     return "".join(plain), spans
+
+
+def _compound_spans(text: str) -> list[tuple[int, int, str]]:
+    """Per-character reading spans for :data:`_JA_COMPOUND_READINGS` in ``text``."""
+    spans: list[tuple[int, int, str]] = []
+    for word, readings in _JA_COMPOUND_READINGS.items():
+        start = text.find(word)
+        while start >= 0:
+            spans.extend((start + j, start + j + 1, r) for j, r in enumerate(readings))
+            start = text.find(word, start + len(word))
+    return spans
 
 
 def _is_kana_reading(reading: str) -> bool:
@@ -318,14 +349,12 @@ def _japanese_char_kana(text: str, spans=()) -> list[str]:
     :func:`parse_reading_markup`) are applied last and win.
     """
     frags = list(text)
-    morphemes = list(_get_fugashi()(text))
-    pos = 0
-    for i, m in enumerate(morphemes):
+    tagged = list(_tag_japanese(text))
+    morphemes = [m for _, m in tagged]
+    for i, (start, m) in enumerate(tagged):
         surface = getattr(m, "surface", None) or str(m)
-        start = text.find(surface, pos) if surface else -1
         if start < 0:
             continue
-        pos = start + len(surface)
 
         if not any(_is_kanji(ch) for ch in surface):
             particle = _JA_PARTICLE_READINGS.get(surface)
@@ -379,7 +408,7 @@ def _japanese_char_kana(text: str, spans=()) -> list[str]:
                     frags[start + r_start + j] = ch
             else:
                 frags[start + r_start] = next(groups)
-    return _apply_reading_spans(frags, spans)
+    return _apply_reading_spans(frags, _compound_spans(text) + list(spans))
 
 
 def _char_runs(text: str, pred):

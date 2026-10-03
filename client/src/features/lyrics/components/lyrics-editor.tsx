@@ -61,7 +61,8 @@ export const LyricsEditor = ({
       </p>
       {CJK_PATTERN.test(text) && (
         <p className="mt-1 text-[11px] text-muted-foreground">
-          Fix a reading with {'{漢字|かな}'} or {'{漢字|romaji}'}, e.g. {'{彷徨|さまよ}って'}
+          Fix a reading with {'{漢字|romaji}'} or {'{漢字|かな}'}, e.g. {'{君|kimi}'} or{' '}
+          {'{彷徨|さまよ}って'}
         </p>
       )}
     </>
