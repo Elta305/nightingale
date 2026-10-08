@@ -1,5 +1,6 @@
 """Lyrics alignment: align pre-fetched lyrics text to vocals audio using WhisperX."""
 
+import itertools
 import json
 import re
 
@@ -318,23 +319,33 @@ def _map_qwen_units_to_lines(align_result: dict, clean_lines: list[str], languag
     surfaces concatenate to each line's kept content, so a running kept-char
     counter attributes tokens to lines without normalized-text matching. Readings
     are attached per line for CJK/Korean.
+
+    Qwen's tokenizer can merge the last word of a line with the first of the next
+    (金の塔 / 北の丘 -> "塔北"), so such units are split at the line boundary
+    first, and the counter is cumulative so any leftover mismatch stays local
+    instead of shifting every following line.
     """
-    units = _collect_aligned(align_result)
+    line_lens = [cjk.qwen_kept_len(line) for line in clean_lines]
+    units = _split_units_at_boundaries(
+        _collect_aligned(align_result),
+        set(itertools.accumulate(line_lens)),
+    )
     segments: list[dict] = []
     cursor = 0
+    consumed = 0
+    target = 0
 
-    for line_text in clean_lines:
-        need = cjk.qwen_kept_len(line_text)
+    for line_text, need in zip(clean_lines, line_lens):
         if need == 0:
             continue
+        target += need
 
         taken: list[dict] = []
-        acc = 0
-        while cursor < len(units) and acc < need:
+        while cursor < len(units) and consumed < target:
             u = units[cursor]
             cursor += 1
             taken.append(u)
-            acc += cjk.qwen_kept_len(u["word"])
+            consumed += cjk.qwen_kept_len(u["word"])
 
         words: list[dict] = []
         for u in taken:
@@ -375,6 +386,49 @@ def _map_qwen_units_to_lines(align_result: dict, clean_lines: list[str], languag
 
     joiner = "" if cjk.is_cjk(language) else " "
     return _split_long_segments(segments, joiner=joiner)
+
+
+def _split_units_at_boundaries(units: list[dict], boundaries: set[int]) -> list[dict]:
+    """Split units whose kept chars straddle a cumulative line boundary.
+
+    Each piece keeps its share of the unit's time span, proportional to its
+    kept-char count.
+    """
+    out: list[dict] = []
+    consumed = 0
+    for u in units:
+        n = cjk.qwen_kept_len(u["word"])
+        cuts = sorted(b - consumed for b in boundaries if consumed < b < consumed + n)
+        consumed += n
+        if not cuts:
+            out.append(u)
+            continue
+
+        pieces: list[str] = []
+        current = ""
+        kept = 0
+        for ch in u["word"]:
+            current += ch
+            kept += cjk.qwen_kept_len(ch)
+            if cuts and kept == cuts[0]:
+                pieces.append(current)
+                current = ""
+                cuts.pop(0)
+        if current:
+            pieces.append(current)
+
+        timed = u["start"] is not None and u["end"] is not None
+        offset = 0
+        for piece in pieces:
+            k = cjk.qwen_kept_len(piece)
+            part = dict(u, word=piece, norm=_normalize(piece))
+            if timed:
+                span = u["end"] - u["start"]
+                part["start"] = u["start"] + span * offset / n
+                part["end"] = u["start"] + span * (offset + k) / n
+            offset += k
+            out.append(part)
+    return out
 
 
 def _map_words_to_lines(align_result: dict, clean_lines: list[str]) -> list[dict]:
