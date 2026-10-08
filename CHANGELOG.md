@@ -29,6 +29,7 @@ below.
 - Migrated library persistence from handwritten runtime SQL to Diesel's typed SQLite query builder without changing existing databases or library behavior.
 - Playback queue songs can now be reordered by dragging or with Alt+Arrow keys.
 - The lyrics editor shows the LRC timing syntax (`[01:23.45]` per line, `<01:24.10>` per word) under the text box.
+- The playback screen now shows the song's cover art, title, and artist on a loading screen while audio is still downloading/decoding, instead of a blank/shader background.
 
 ### Fixes
 
@@ -38,7 +39,7 @@ below.
 - Japanese romaji now reads kanji in sentence context (彷徨って → samayotte, 君 → kimi instead of hōkō / kun), romanizes the particles は / へ as wa / e, handles small っ across word boundaries, and treats half-width spaces as word breaks (街 家 → machi ie, not machi ka).
 - Song details now open without re-rendering every loaded song or initializing multiplayer devices.
 - Song selections now remain active while searching and after clearing the search field.
-- Song search is now case-insensitive for Unicode metadata and paths.
+- Song search is now case- and accent-insensitive for Unicode metadata and paths.
 - Stems, source videos, and background videos now play when the songs or videos cache has been moved to a separate folder (for example a network share): the desktop and self-hosted media servers only allowed files under the data folder and library folder, so a relocated cache failed with "Failed to fetch instrumental: 404".
 - Analysis status sorting now orders ready songs by the transcript source shown in their status badge.
 
