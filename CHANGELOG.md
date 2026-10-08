@@ -41,6 +41,7 @@ below.
 - Stems, source videos, and background videos now play when the songs or videos cache has been moved to a separate folder (for example a network share): the desktop and self-hosted media servers only allowed files under the data folder and library folder, so a relocated cache failed with "Failed to fetch instrumental: 404".
 - Analysis status sorting now orders ready songs by the transcript source shown in their status badge.
 - Japanese romaji now reads kanji in sentence context (彷徨って → samayotte, 君 → kimi instead of hōkō / kun), romanizes the particles は / へ as wa / e, handles small っ across word boundaries, treats half-width spaces as word breaks (街 家 → machi ie, not machi ka), and fixes common lyric words the dictionary misreads (私, 明日, 三日月, 駆く…).
+- Lyrics now follow the song at a changed tempo after the lyrics were edited or re-aligned: the tempo-scaled lyric timings are rebuilt when missing instead of falling back to the original-speed timings.
 
 ## [1.2.0] - 2026-09-02
 
