@@ -5,7 +5,7 @@ import json
 import re
 
 import cjk
-from audio import detect_vocal_region
+from audio import detect_vocal_region, silent_gaps
 from gpu import gpu_model
 from language import detect_language_multiwindow
 from whisper_compat import progress, align_device_for, compute_type_for, align_with_fallback, get_align_backend
@@ -78,6 +78,7 @@ def align_lyrics(
             clean_lines, audio, language, vocal_start, vocal_end, pre_align_cleanup,
         )
         if qwen_segments is not None:
+            _trim_words_to_vocals(qwen_segments, audio)
             progress(90, f"Alignment complete: {len(qwen_segments)} segments, lang={language}")
             if qwen_segments:
                 print(f"[nightingale:LOG] First segment: '{qwen_segments[0]['text'][:100]}'", flush=True)
@@ -117,12 +118,54 @@ def align_lyrics(
             for seg in segments:
                 cjk.attach_reading(seg["words"], language)
 
+    _trim_words_to_vocals(segments, audio)
+
     progress(90, f"Alignment complete: {len(segments)} segments, lang={language}")
     if segments:
         print(f"[nightingale:LOG] First segment: '{segments[0]['text'][:100]}'", flush=True)
         print(f"[nightingale:LOG] Last segment: '{segments[-1]['text'][:100]}'", flush=True)
 
     return {"language": language, "segments": segments, "source": "lyrics"}
+
+def _trim_words_to_vocals(segments: list[dict], audio) -> None:
+    """Shrink words that span a long vocal silence to their longest sung part.
+
+    Aligners fill instrumental breaks by stretching the neighbouring word across
+    them (風 highlighted through a 40 s interlude). Words lying entirely inside a
+    silence are left alone: there is no sung part to move them to.
+    """
+    gaps = silent_gaps(audio)
+    if not gaps:
+        return
+    trimmed = 0
+    for seg in segments:
+        words = seg.get("words") or []
+        for w in words:
+            start, end = w.get("start"), w.get("end")
+            if start is None or end is None:
+                continue
+            pieces: list[tuple[float, float]] = []
+            cursor = start
+            for g_start, g_end in gaps:
+                if g_end <= cursor or g_start >= end:
+                    continue
+                if g_start > cursor:
+                    pieces.append((cursor, g_start))
+                cursor = max(cursor, g_end)
+            if cursor < end:
+                pieces.append((cursor, end))
+            if not pieces or pieces == [(start, end)]:
+                continue
+            best_start, best_end = max(pieces, key=lambda p: p[1] - p[0])
+            w["start"] = round(best_start, 3)
+            w["end"] = round(best_end, 3)
+            trimmed += 1
+        if words:
+            seg["start"] = words[0]["start"]
+            seg["end"] = max(seg["start"], words[-1]["end"])
+    if trimmed:
+        print(f"[nightingale:LOG] Trimmed {trimmed} words stretched over vocal silences", flush=True)
+
 
 def _normalize(word: str) -> str:
     return re.sub(r"[^\w]", "", word).lower()
