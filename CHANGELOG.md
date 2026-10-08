@@ -22,6 +22,7 @@ below.
 - **Rescan library** now also picks up analyses that another machine left in a shared cache folder: songs already in the library whose stems and transcript exist in the cache are marked ready without re-running analysis, and a toast summarizes how many were updated.
 - The lyrics editor pre-fills from a `.lrc` / `.elrc` file next to a local song's audio when the song has no lyrics yet, and offers a **Use local .lrc** action otherwise; nothing is written until Save.
 - Added the ability to toggle the display of romanized lyrics for CJK languages in Settings.
+- Lyrics can carry a note above any word with `{word|note}` in the lyrics editor, in every language: it replaces the automatic reading (romaji, pinyin, Jyutping, romanization) of the characters it covers or adds one (e.g. `{君|kimi}`, `{行|háng}`, `{colour|color}`). For Japanese, a kana note (`{彷徨|さまよ}って`) also guides alignment.
 
 ### Improvements
 
