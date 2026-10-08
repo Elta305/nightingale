@@ -258,6 +258,8 @@ _JA_READING_OVERRIDES = {
 # みっか+つき). Readings are per character so any token split stays correct.
 _JA_COMPOUND_READINGS = {
     "三日月": ("み", "か", "づき"),
+    # Literary 駆ける, missing from unidic-lite: tagged as 駆 (かける) + く.
+    "駆く": ("か", "く"),
 }
 # unidic-lite always reads 何 as ナン; before these particles it is なに.
 _JA_NANI_FOLLOWERS = ("を", "が", "か", "も", "に", "より")

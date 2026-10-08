@@ -20,6 +20,7 @@ below.
 - **Rescan library** now also picks up analyses that another machine left in a shared cache folder: songs already in the library whose stems and transcript exist in the cache are marked ready without re-running analysis, and a toast summarizes how many were updated.
 - The lyrics editor pre-fills from a `.lrc` / `.elrc` file next to a local song's audio when the song has no lyrics yet, and offers a **Use local .lrc** action otherwise; nothing is written until Save.
 - Added the ability to toggle the display of romanized lyrics for CJK languages in Settings.
+- Line-timed LRC can now guide alignment: the lyrics editor's new **Align words** timing keeps each line's LRC timing and has the AI time only the words inside it, so one misheard passage can no longer shift the rest of the song. Each word stays lit until the next one starts and a line stays on screen until its LRC end, unless the singing stops for a long pause.
 - Added a **Folders** section to the sidebar for local folder libraries: it keeps the library's subfolder hierarchy, subfolders open and close with their chevron (or by selecting the folder again), and selecting a folder shows its songs and those of its subfolders.
 - Japanese readings can be overridden in the lyrics editor with `{漢字|かな}` or `{漢字|romaji}` (for example `{彷徨|さまよ}って`); kana overrides also guide alignment.
 

@@ -20,7 +20,7 @@ use base64::{engine::general_purpose::STANDARD as B64, Engine as _};
 use cache::{calculate_cache_stats, clear_all, clear_models_command, clear_videos_command};
 use config::{load_config, save_config};
 use lyrics::{
-    apply_timed_lyrics, load_lyrics, load_sidecar_lrc, provide_lrc, save_lyrics,
+    align_lrc_lyrics, apply_timed_lyrics, load_lyrics, load_sidecar_lrc, provide_lrc, save_lyrics,
     search_lrclib_lyrics,
 };
 use microphones::{list_microphones, set_monitor_gain, start_mic_capture, stop_mic_capture};
@@ -160,6 +160,7 @@ pub fn run() {
             save_lyrics,
             provide_lrc,
             apply_timed_lyrics,
+            align_lrc_lyrics,
             // Playback
             load_transcript,
             get_audio_paths,
