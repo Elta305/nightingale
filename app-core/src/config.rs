@@ -188,6 +188,12 @@ pub struct AppConfig {
     pub guide_volume: Option<f64>,
     pub master_volume: Option<f64>,
     pub fullscreen: Option<bool>,
+    #[serde(default)]
+    #[ts(skip)]
+    pub desktop_window: WindowState,
+    #[serde(default)]
+    #[ts(skip)]
+    pub playback_window: WindowState,
     pub playback_mode: Option<String>,
     pub dark_mode: Option<bool>,
     pub mic_active: Option<bool>,
@@ -256,6 +262,8 @@ impl Default for AppConfig {
             guide_volume: None,
             master_volume: None,
             fullscreen: None,
+            desktop_window: WindowState::default(),
+            playback_window: WindowState::default(),
             playback_mode: None,
             dark_mode: None,
             mic_active: None,
@@ -282,6 +290,13 @@ impl Default for AppConfig {
             language_overrides: None,
         }
     }
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct WindowState {
+    pub width: Option<u32>,
+    pub height: Option<u32>,
+    pub maximized: bool,
 }
 
 impl AppConfig {

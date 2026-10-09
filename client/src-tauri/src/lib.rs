@@ -2,18 +2,101 @@ mod backgrounds;
 mod logging;
 mod microphones;
 
-use std::{path::Path, sync::Arc};
+use std::{
+    collections::HashMap,
+    path::Path,
+    sync::{Arc, Mutex},
+};
 
 use app_api::{CommandRuntime, CommandState};
-use app_core::{AppConfig, SongsStore};
+use app_core::{AppConfig, SongsStore, WindowState};
 use backgrounds::import_custom_background;
 use base64::{engine::general_purpose::STANDARD as B64, Engine as _};
 use microphones::{list_microphones, set_monitor_gain, start_mic_capture, stop_mic_capture};
 use serde_json::Value;
-use tauri::{AppHandle, Emitter, Manager, RunEvent, WebviewWindowBuilder};
+use tauri::{
+    AppHandle, Emitter, Manager, PhysicalSize, RunEvent, WebviewWindow, WebviewWindowBuilder,
+    WindowEvent,
+};
 
 #[derive(Clone)]
 struct DesktopRuntime(AppHandle);
+
+#[derive(Default)]
+struct WindowStates(Arc<Mutex<HashMap<String, WindowState>>>);
+
+fn saved_window_state(config: &AppConfig, label: &str) -> WindowState {
+    match label {
+        "main" => config.desktop_window.clone(),
+        "playback" => config.playback_window.clone(),
+        _ => WindowState::default(),
+    }
+}
+
+fn save_window_state(label: &str, state: WindowState) {
+    let mut config = AppConfig::load();
+    match label {
+        "main" => config.desktop_window = state,
+        "playback" => config.playback_window = state,
+        _ => return,
+    }
+    config.save();
+}
+
+fn register_window_state(window: &WebviewWindow, state: WindowState) {
+    let label = window.label().to_string();
+    let states = window.state::<WindowStates>().inner().0.clone();
+    if let Ok(mut states) = states.lock() {
+        states.insert(label.clone(), state);
+    }
+    let tracked_window = window.clone();
+    window.on_window_event(move |event| match event {
+        WindowEvent::Resized(size) => {
+            if !tracked_window.is_maximized().unwrap_or(false) {
+                if let Ok(mut states) = states.lock() {
+                    if let Some(state) = states.get_mut(&label) {
+                        state.width = Some(size.width);
+                        state.height = Some(size.height);
+                    }
+                }
+            }
+        }
+        WindowEvent::CloseRequested { .. } => {
+            if let Ok(states) = states.lock() {
+                if let Some(state) = states.get(&label) {
+                    let mut state = state.clone();
+                    state.maximized = tracked_window.is_maximized().unwrap_or(false);
+                    save_window_state(&label, state);
+                }
+            }
+        }
+        _ => {}
+    });
+}
+
+fn configure_window_state(window: &WebviewWindow, state: WindowState) {
+    if let (Some(width), Some(height)) = (state.width, state.height) {
+        let _ = window.set_size(PhysicalSize::new(width, height));
+    }
+    if state.maximized {
+        let _ = window.maximize();
+    }
+    register_window_state(window, state);
+}
+
+fn save_open_window_states(app: &AppHandle) {
+    let states = app.state::<WindowStates>();
+    let Ok(states) = states.0.lock() else {
+        return;
+    };
+    for (label, window) in app.webview_windows() {
+        if let Some(state) = states.get(&label) {
+            let mut state = state.clone();
+            state.maximized = window.is_maximized().unwrap_or(state.maximized);
+            save_window_state(&label, state);
+        }
+    }
+}
 
 impl CommandRuntime for DesktopRuntime {
     fn emit(&self, name: &str, payload: Value) {
@@ -56,7 +139,7 @@ fn frontend_ready(window: tauri::Window) -> Result<(), String> {
 /// True for native fullscreen or macOS "simple" fullscreen (`set_simple_fullscreen`), where
 /// `isFullscreen()` stays false but the window fills the screen.
 #[tauri::command]
-fn window_immersive(window: tauri::WebviewWindow) -> Result<bool, String> {
+fn window_immersive(window: WebviewWindow) -> Result<bool, String> {
     if window.is_fullscreen().map_err(|e| e.to_string())? {
         return Ok(true);
     }
@@ -77,12 +160,32 @@ fn window_immersive(window: tauri::WebviewWindow) -> Result<bool, String> {
 
 /// macOS simple fullscreen clears `Miniaturizable`; exit that mode before minimizing.
 #[tauri::command]
-fn minimize_window(window: tauri::WebviewWindow) -> Result<(), String> {
+fn minimize_window(window: WebviewWindow) -> Result<(), String> {
     #[cfg(target_os = "macos")]
     {
         let _ = window.set_simple_fullscreen(false);
     }
     window.minimize().map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn load_window_state(label: String) -> Result<WindowState, String> {
+    match label.as_str() {
+        "main" | "playback" => Ok(saved_window_state(&AppConfig::load(), &label)),
+        _ => Err("unsupported window label".into()),
+    }
+}
+
+#[tauri::command]
+fn track_window_state(app: AppHandle, label: String) -> Result<(), String> {
+    if label != "main" && label != "playback" {
+        return Err("unsupported window label".into());
+    }
+    let window = app
+        .get_webview_window(&label)
+        .ok_or_else(|| "window not found".to_string())?;
+    register_window_state(&window, saved_window_state(&AppConfig::load(), &label));
+    Ok(())
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -99,6 +202,8 @@ pub fn run() {
             frontend_ready,
             window_immersive,
             minimize_window,
+            load_window_state,
+            track_window_state,
             import_custom_background,
             get_media_endpoint,
             list_microphones,
@@ -110,6 +215,7 @@ pub fn run() {
             app.manage(CommandState::new(Arc::new(DesktopRuntime(
                 app.handle().clone(),
             ))));
+            app.manage(WindowStates::default());
             app.handle()
                 .plugin(tauri_plugin_updater::Builder::new().build())?;
             app_core::startup()?;
@@ -162,6 +268,8 @@ pub fn run() {
                 .build()
                 .map_err(|e| e.to_string())?;
 
+            configure_window_state(&window, saved_window_state(&config, "main"));
+
             if config.fullscreen == Some(true) {
                 let _ = window.set_simple_fullscreen(true);
             }
@@ -170,9 +278,9 @@ pub fn run() {
         })
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
-        .run(|_app, event| {
-            if let RunEvent::Exit = event {
-                app_core::shutdown_server();
-            }
+        .run(|app, event| match event {
+            RunEvent::ExitRequested { .. } => save_open_window_states(app),
+            RunEvent::Exit => app_core::shutdown_server(),
+            _ => {}
         });
 }

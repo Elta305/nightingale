@@ -574,8 +574,11 @@ struct SaveConfigArgs {
 }
 
 fn save_config_cmd(events: EventEmitter, payload: Value) -> CmdResult {
-    let SaveConfigArgs { config } = deserialize(payload)?;
-    let was_auto_analyze = AppConfig::load().auto_analyze();
+    let SaveConfigArgs { mut config } = deserialize(payload)?;
+    let current = AppConfig::load();
+    let was_auto_analyze = current.auto_analyze();
+    config.desktop_window = current.desktop_window;
+    config.playback_window = current.playback_window;
     config.save();
     events.0.set_monitor_gain(config.mic_monitor_gain());
     if config.auto_analyze() && !was_auto_analyze {
