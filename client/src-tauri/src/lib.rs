@@ -84,6 +84,20 @@ fn configure_window_state(window: &WebviewWindow, state: WindowState) {
     register_window_state(window, state);
 }
 
+fn save_open_window_states(app: &AppHandle) {
+    let states = app.state::<WindowStates>();
+    let Ok(states) = states.0.lock() else {
+        return;
+    };
+    for (label, window) in app.webview_windows() {
+        if let Some(state) = states.get(&label) {
+            let mut state = state.clone();
+            state.maximized = window.is_maximized().unwrap_or(state.maximized);
+            save_window_state(&label, state);
+        }
+    }
+}
+
 impl CommandRuntime for DesktopRuntime {
     fn emit(&self, name: &str, payload: Value) {
         let _ = self.0.emit(name, payload);
@@ -264,9 +278,9 @@ pub fn run() {
         })
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
-        .run(|_app, event| {
-            if let RunEvent::Exit = event {
-                app_core::shutdown_server();
-            }
+        .run(|app, event| match event {
+            RunEvent::ExitRequested { .. } => save_open_window_states(app),
+            RunEvent::Exit => app_core::shutdown_server(),
+            _ => {}
         });
 }
