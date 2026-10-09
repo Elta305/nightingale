@@ -36,7 +36,7 @@ pub use cache::{
     clear_videos, default_nightingale_dir, nightingale_dir, normalized_target_path, same_path,
     set_default_data_path,
 };
-pub use config::{AppConfig, LibrarySource};
+pub use config::{AppConfig, LibrarySource, WindowState};
 pub use library_db::{init_library, library_db_path};
 pub use library_menu::{LibraryMenuItem, LibraryMenuItems, load_library_menu_items};
 pub use library_model::{
