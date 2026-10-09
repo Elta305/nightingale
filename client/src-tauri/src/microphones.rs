@@ -60,8 +60,8 @@ fn device_display_name(device: &cpal::Device) -> String {
     let Ok(desc) = device.description() else {
         return "(unknown)".into();
     };
-    if let Some(friendly) = desc.extended().first() {
-        return friendly.clone();
+    if let Some(friendly) = desc.extended().next() {
+        return friendly.to_owned();
     }
     desc.to_string()
 }
@@ -380,7 +380,7 @@ fn try_build_stream(
         SampleFormat::F32 => {
             let push = push_samples.clone();
             device.build_input_stream(
-                config,
+                *config,
                 move |data: &[f32], _: &cpal::InputCallbackInfo| push(data),
                 |err| warn!("[mic] stream error: {err}"),
                 None,
@@ -389,7 +389,7 @@ fn try_build_stream(
         SampleFormat::I16 => {
             let push = push_samples.clone();
             device.build_input_stream(
-                config,
+                *config,
                 move |data: &[i16], _: &cpal::InputCallbackInfo| {
                     push_mapped_input(data, &push, i16_to_f32);
                 },
@@ -400,7 +400,7 @@ fn try_build_stream(
         SampleFormat::I32 => {
             let push = push_samples.clone();
             device.build_input_stream(
-                config,
+                *config,
                 move |data: &[i32], _: &cpal::InputCallbackInfo| {
                     push_mapped_input(data, &push, i32_to_f32);
                 },
@@ -496,7 +496,7 @@ fn try_build_output_stream(
         SampleFormat::F32 => {
             let next = Arc::clone(&next_sample);
             device.build_output_stream(
-                &config,
+                config,
                 move |data: &mut [f32], _: &cpal::OutputCallbackInfo| {
                     write_output_frames(data, ch, &next, |sample| sample);
                 },
@@ -507,7 +507,7 @@ fn try_build_output_stream(
         SampleFormat::I16 => {
             let next = Arc::clone(&next_sample);
             device.build_output_stream(
-                &config,
+                config,
                 move |data: &mut [i16], _: &cpal::OutputCallbackInfo| {
                     write_output_frames(data, ch, &next, f32_to_i16);
                 },
@@ -518,7 +518,7 @@ fn try_build_output_stream(
         SampleFormat::U16 => {
             let next = Arc::clone(&next_sample);
             device.build_output_stream(
-                &config,
+                config,
                 move |data: &mut [u16], _: &cpal::OutputCallbackInfo| {
                     write_output_frames(data, ch, &next, f32_to_u16);
                 },
@@ -529,7 +529,7 @@ fn try_build_output_stream(
         SampleFormat::I32 => {
             let next = Arc::clone(&next_sample);
             device.build_output_stream(
-                &config,
+                config,
                 move |data: &mut [i32], _: &cpal::OutputCallbackInfo| {
                     write_output_frames(data, ch, &next, f32_to_i32);
                 },
@@ -540,7 +540,7 @@ fn try_build_output_stream(
         SampleFormat::U32 => {
             let next = Arc::clone(&next_sample);
             device.build_output_stream(
-                &config,
+                config,
                 move |data: &mut [u32], _: &cpal::OutputCallbackInfo| {
                     write_output_frames(data, ch, &next, f32_to_u32);
                 },
